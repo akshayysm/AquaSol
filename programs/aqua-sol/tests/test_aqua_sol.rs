@@ -6,7 +6,7 @@ use anchor_lang::{
 use anchor_spl::token::spl_token;
 use aqua_sol::{
     constants::{AGENT_SEED, CLAIM_SEED, CONFIG_SEED, WATER_MINT_SEED},
-    state::{Agent, Claim, ClaimStatus, Config},
+    state::{Agent, AgentStatus, Claim, ClaimStatus, Config},
 };
 use litesvm::LiteSVM;
 use solana_keypair::Keypair;
@@ -142,7 +142,7 @@ fn test_register_agent() {
             program_id: aqua_sol::ID,
             accounts: accounts.to_account_metas(None),
             data: aqua_sol::instruction::RegisterAgent {
-                kyc_verified: true,
+                metadata_uri: "ipfs://agent-metadata".to_string(),
             }
             .data(),
         };
@@ -158,8 +158,8 @@ fn test_register_agent() {
             .expect("failed to deserialize Agent");
 
     assert_eq!(agent_state.agent, agent.pubkey());
-    assert!(agent_state.kyc_verified);
-    assert!(agent_state.active);
+    assert_eq!(agent_state.metadata_uri, "ipfs://agent-metadata");
+    assert!(matches!(agent_state.status, AgentStatus::Pending));
 }
 
 #[test]

@@ -2,9 +2,9 @@ use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Mint, MintTo, Token, TokenAccount};
 
 use crate::{
-    constants::{CONFIG_SEED, WATER_MINT_SEED},
+    constants::{AGENT_SEED, CONFIG_SEED, WATER_MINT_SEED},
     error::ErrorCode,
-    state::{Agent, Claim, ClaimStatus, Config},
+    state::{Agent, AgentStatus, Claim, ClaimStatus, Config},
 };
 
 #[derive(Accounts)]
@@ -15,14 +15,12 @@ pub struct VerifyClaim<'info> {
 
     /// Registered AquaSol verification agent.
     #[account(
-        seeds = [b"agent", agent.key().as_ref()],
+        seeds = [AGENT_SEED, agent.key().as_ref()],
         bump = agent_pda.bump,
         constraint = agent_pda.agent == agent.key()
-            @ ErrorCode::AgentInactive,
-        constraint = agent_pda.kyc_verified
-            @ ErrorCode::AgentNotKycVerified,
-        constraint = agent_pda.active
-            @ ErrorCode::AgentInactive,
+            @ ErrorCode::UnauthorizedAgent,
+        constraint = agent_pda.status == AgentStatus::Verified
+            @ ErrorCode::AgentNotVerified,
     )]
     pub agent_pda: Account<'info, Agent>,
 

@@ -3,7 +3,7 @@ use anchor_lang::prelude::*;
 use crate::{
     constants::{AGENT_SEED, CONFIG_SEED},
     error::ErrorCode,
-    state::{Agent, Config},
+    state::{Agent, AgentStatus, Config},
 };
 
 #[derive(Accounts)]
@@ -31,14 +31,17 @@ pub struct RegisterAgent<'info> {
 
 pub fn handle_register_agent(
     ctx: Context<RegisterAgent>,
-    kyc_verified: bool,
+    metadata_uri: String,
 ) -> Result<()> {
-    require!(kyc_verified, ErrorCode::AgentNotKycVerified);
+    require!(
+        !metadata_uri.is_empty() && metadata_uri.len() <= 200,
+        ErrorCode::InvalidMetadataUri
+    );
 
     ctx.accounts.agent_pda.set_inner(Agent {
         agent: ctx.accounts.agent.key(),
-        kyc_verified,
-        active: true,
+        metadata_uri,
+        status: AgentStatus::Pending,
         bump: ctx.bumps.agent_pda,
     });
 

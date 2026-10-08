@@ -24,11 +24,11 @@ pub mod aqua_sol {
 
     pub fn register_agent(
         ctx: Context<RegisterAgent>,
-        kyc_verified: bool,
+        metadata_uri: String,
     ) -> Result<()> {
         instructions::register_agent::handle_register_agent(
             ctx,
-            kyc_verified,
+            metadata_uri,
         )
     }
 
