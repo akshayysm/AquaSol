@@ -20,6 +20,15 @@ pub enum ErrorCode {
     #[msg("Agent metadata URI is invalid")]
     InvalidMetadataUri,
 
+    #[msg("Only the protocol admin can perform this action")]
+    Unauthorized,
+
+    #[msg("Agent is already in the requested state")]
+    AgentAlreadyResolved,
+
+    #[msg("Collector account does not match the claim")]
+    InvalidCollector,
+
     #[msg("Verification failed")]
     VerificationFailed,
 }
