@@ -13,17 +13,33 @@ pub struct Config {
     pub bump: u8,
 }
 
+#[derive(
+    AnchorSerialize,
+    AnchorDeserialize,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    InitSpace,
+)]
+pub enum AgentStatus {
+    Pending,
+    Verified,
+    Rejected,
+}
+
 #[account]
 #[derive(InitSpace)]
 pub struct Agent {
     /// Wallet registered as a verification agent.
     pub agent: Pubkey,
 
-    /// Whether the agent has passed KYC.
-    pub kyc_verified: bool,
+    /// Off-chain metadata URI (name, location, KYC docs).
+    #[max_len(200)]
+    pub metadata_uri: String,
 
-    /// Whether the agent is currently active.
-    pub active: bool,
+    /// On-chain verification state set by admin via `verify_agent`.
+    pub status: AgentStatus,
 
     /// Bump used by the Agent PDA.
     pub bump: u8,

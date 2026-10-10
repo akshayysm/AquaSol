@@ -10,7 +10,7 @@ pub use error::*;
 pub use instructions::*;
 pub use state::*;
 
-declare_id!("pdss4eJfXzqBVim1oDPtqfzhwMR79t1JrU2FHiny7Wh");
+declare_id!("KFnBABoUBwpu8C9M1TJA3aXkT87BSBmYZ7nazuUy6my");
 
 #[program]
 pub mod aqua_sol {
@@ -24,11 +24,23 @@ pub mod aqua_sol {
 
     pub fn register_agent(
         ctx: Context<RegisterAgent>,
-        kyc_verified: bool,
+        metadata_uri: String,
     ) -> Result<()> {
         instructions::register_agent::handle_register_agent(
             ctx,
-            kyc_verified,
+            metadata_uri,
+        )
+    }
+
+    pub fn verify_agent(
+        ctx: Context<VerifyAgent>,
+        agent: Pubkey,
+        approved: bool,
+    ) -> Result<()> {
+        instructions::verify_agent::handle_verify_agent(
+            ctx,
+            agent,
+            approved,
         )
     }
 

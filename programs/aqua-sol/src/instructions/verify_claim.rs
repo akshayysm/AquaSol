@@ -1,10 +1,13 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{self, Mint, MintTo, Token, TokenAccount};
+use anchor_spl::{
+    associated_token::AssociatedToken,
+    token::{self, Mint, MintTo, Token, TokenAccount},
+};
 
 use crate::{
-    constants::{CONFIG_SEED, WATER_MINT_SEED},
+    constants::{AGENT_SEED, CONFIG_SEED, WATER_MINT_SEED},
     error::ErrorCode,
-    state::{Agent, Claim, ClaimStatus, Config},
+    state::{Agent, AgentStatus, Claim, ClaimStatus, Config},
 };
 
 #[derive(Accounts)]
@@ -15,14 +18,12 @@ pub struct VerifyClaim<'info> {
 
     /// Registered AquaSol verification agent.
     #[account(
-        seeds = [b"agent", agent.key().as_ref()],
+        seeds = [AGENT_SEED, agent.key().as_ref()],
         bump = agent_pda.bump,
         constraint = agent_pda.agent == agent.key()
-            @ ErrorCode::AgentInactive,
-        constraint = agent_pda.kyc_verified
-            @ ErrorCode::AgentNotKycVerified,
-        constraint = agent_pda.active
-            @ ErrorCode::AgentInactive,
+            @ ErrorCode::UnauthorizedAgent,
+        constraint = agent_pda.status == AgentStatus::Verified
+            @ ErrorCode::AgentNotVerified,
     )]
     pub agent_pda: Account<'info, Agent>,
 
@@ -56,16 +57,40 @@ pub struct VerifyClaim<'info> {
     )]
     pub water_mint: Account<'info, Mint>,
 
-    /// Collector's AQUA token account.
+    /// Collector wallet recorded on the claim.
+    ///
+    /// Readonly: only used as the ATA authority address and to
+    /// prove the correct collector account was passed. Requires
+    /// no signature, keeping verification asynchronous.
+    /// CHECK: Address pinned to `claim_pda.collector` below.
     #[account(
-        mut,
-        token::mint = water_mint,
-        token::authority = claim_pda.collector,
+        address = claim_pda.collector @ ErrorCode::InvalidCollector,
+    )]
+    pub collector: UncheckedAccount<'info>,
+
+    /// Collector's AQUA token account.
+    ///
+    /// Created on demand and funded by the verifying agent, so
+    /// the collector stays fully passive after submitting the
+    /// claim. The address is canonically derived from
+    /// (collector, water_mint), shared across all of the
+    /// collector's claims.
+    #[account(
+        init_if_needed,
+        payer = agent,
+        associated_token::mint = water_mint,
+        associated_token::authority = collector,
     )]
     pub collector_ata: Account<'info, TokenAccount>,
 
     /// SPL Token Program.
     pub token_program: Program<'info, Token>,
+
+    /// Associated Token Program creates the collector ATA.
+    pub associated_token_program: Program<'info, AssociatedToken>,
+
+    /// System Program funds the ATA creation.
+    pub system_program: Program<'info, System>,
 }
 
 pub fn handle_verify_claim(
