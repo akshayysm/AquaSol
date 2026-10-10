@@ -47,7 +47,7 @@ pub struct SubmitClaim<'info> {
 pub fn handle_submit_claim(
     ctx: Context<SubmitClaim>,
     claim_id: u64,
-    source: Pubkey,
+    source_name: String,
     amount: u64,
 ) -> Result<()> {
     // A claim must specify a non-zero water amount.
@@ -56,7 +56,7 @@ pub fn handle_submit_claim(
     // A newly submitted claim always starts as Pending.
     ctx.accounts.claim_pda.set_inner(Claim {
         collector: ctx.accounts.collector.key(),
-        source,
+        source_name,
         amount,
         claim_id,
         status: ClaimStatus::Pending,
@@ -64,8 +64,9 @@ pub fn handle_submit_claim(
     });
 
     msg!(
-        "Water claim submitted: collector={}, claim_id={}, amount={}",
+        "Water claim submitted: collector={}, source_name={}, claim_id={}, amount={}",
         ctx.accounts.collector.key(),
+        ctx.accounts.claim_pda.source_name,
         claim_id,
         amount
     );
