@@ -10,7 +10,7 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 
-const RPC = process.env.RPC_URL || "http://127.0.0.1:8899";
+const RPC = process.env.RPC_URL || "https://api.devnet.solana.com";
 const PROGRAM_ID = new PublicKey("KFnBABoUBwpu8C9M1TJA3aXkT87BSBmYZ7nazuUy6my");
 
 // Load IDL and CLI keypair
