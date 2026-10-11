@@ -16,7 +16,7 @@ export const PROGRAM_ID = new PublicKey(
 // Local Surfpool / solana-test-validator. Override with:
 // NEXT_PUBLIC_RPC_URL=https://api.devnet.solana.com
 export const RPC_URL =
-  process.env.NEXT_PUBLIC_RPC_URL ?? "http://127.0.0.1:8899";
+  process.env.NEXT_PUBLIC_RPC_URL ?? "https://api.devnet.solana.com";
 
 // Structural match for provider wallets (e.g. wallet-adapter's useAnchorWallet).
 export interface WalletLike {
