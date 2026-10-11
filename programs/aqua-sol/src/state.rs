@@ -66,8 +66,9 @@ pub struct Claim {
     /// Wallet that submitted the water claim.
     pub collector: Pubkey,
 
-    /// Water source associated with the claim.
-    pub source: Pubkey,
+    /// Name of the water source associated with the claim.
+    #[max_len(128)]
+    pub source_name: String,
 
     /// Verified/submitted water volume in liters.
     ///

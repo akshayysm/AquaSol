@@ -47,13 +47,13 @@ pub mod aqua_sol {
     pub fn submit_claim(
         ctx: Context<SubmitClaim>,
         claim_id: u64,
-        source: Pubkey,
+        source_name: String,
         amount: u64,
     ) -> Result<()> {
         instructions::submit_claim::handle_submit_claim(
             ctx,
             claim_id,
-            source,
+            source_name,
             amount,
         )
     }

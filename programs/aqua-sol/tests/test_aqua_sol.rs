@@ -198,10 +198,10 @@ fn submit_claim(
     collector: &Keypair,
     config: Pubkey,
     claim_id: u64,
-    source: Pubkey,
+    source_name: &str,
     amount: u64,
 ) -> Pubkey {
-    try_submit_claim(svm, collector, config, claim_id, source, amount)
+    try_submit_claim(svm, collector, config, claim_id, source_name, amount)
         .expect("submit_claim failed")
 }
 
@@ -210,7 +210,7 @@ fn try_submit_claim(
     collector: &Keypair,
     config: Pubkey,
     claim_id: u64,
-    source: Pubkey,
+    source_name: &str,
     amount: u64,
 ) -> std::result::Result<Pubkey, String> {
     let (claim_pda, _) = Pubkey::find_program_address(
@@ -233,7 +233,7 @@ fn try_submit_claim(
         accounts,
         aqua_sol::instruction::SubmitClaim {
             claim_id,
-            source,
+            source_name: source_name.to_string(),
             amount,
         }
         .data(),
@@ -423,7 +423,7 @@ fn test_submit_claim() {
     let (config, _) = initialize_protocol(&mut svm, &admin);
 
     let claim_id = 1u64;
-    let source = Pubkey::new_unique();
+    let source_name = "Godavari River";
     let amount = 500u64;
 
     let (claim_pda, _) = Pubkey::find_program_address(
@@ -448,7 +448,7 @@ fn test_submit_claim() {
             accounts: accounts.to_account_metas(None),
             data: aqua_sol::instruction::SubmitClaim {
                 claim_id,
-                source,
+                source_name: source_name.to_string(),
                 amount,
             }
             .data(),
@@ -465,7 +465,7 @@ fn test_submit_claim() {
             .expect("failed to deserialize Claim");
 
     assert_eq!(claim_state.collector, collector.pubkey());
-    assert_eq!(claim_state.source, source);
+    assert_eq!(claim_state.source_name, source_name);
     assert_eq!(claim_state.amount, amount);
     assert_eq!(claim_state.claim_id, claim_id);
 
@@ -491,7 +491,7 @@ fn test_claim_starts_pending() {
     let (config, _) = initialize_protocol(&mut svm, &admin);
 
     let claim_id = 2u64;
-    let source = Pubkey::new_unique();
+    let source_name = "Borewell 12";
     let amount = 1_000u64;
 
     let (claim_pda, _) = Pubkey::find_program_address(
@@ -516,7 +516,7 @@ fn test_claim_starts_pending() {
             accounts: accounts.to_account_metas(None),
             data: aqua_sol::instruction::SubmitClaim {
                 claim_id,
-                source,
+                source_name: source_name.to_string(),
                 amount,
             }
             .data(),
@@ -747,7 +747,7 @@ fn test_submit_claim_zero_amount_fails() {
         &collector,
         config,
         1,
-        Pubkey::new_unique(),
+        "Godavari River",
         0,
     );
 
@@ -761,14 +761,14 @@ fn test_submit_claim_duplicate_claim_id_fails() {
     let collector = Keypair::new();
     fund(&mut svm, &collector.pubkey());
 
-    submit_claim(&mut svm, &collector, config, 7, Pubkey::new_unique(), 500);
+    submit_claim(&mut svm, &collector, config, 7, "Godavari River", 500);
 
     let result = try_submit_claim(
         &mut svm,
         &collector,
         config,
         7,
-        Pubkey::new_unique(),
+        "Godavari River",
         500,
     );
 
@@ -789,7 +789,7 @@ fn test_verify_claim_approve_mints() {
         &collector,
         config,
         1,
-        Pubkey::new_unique(),
+        "Godavari River",
         amount,
     );
 
@@ -842,7 +842,7 @@ fn test_verify_claim_reject_mints_nothing() {
         &collector,
         config,
         1,
-        Pubkey::new_unique(),
+        "Godavari River",
         500,
     );
 
@@ -886,7 +886,7 @@ fn test_verify_claim_rejects_self_verification() {
         &agent,
         config,
         1,
-        Pubkey::new_unique(),
+        "Godavari River",
         500,
     );
 
@@ -917,7 +917,7 @@ fn test_verify_claim_rejects_double_verify() {
         &collector,
         config,
         1,
-        Pubkey::new_unique(),
+        "Godavari River",
         500,
     );
 
@@ -965,7 +965,7 @@ fn test_verify_claim_rejects_pending_agent() {
         &collector,
         config,
         1,
-        Pubkey::new_unique(),
+        "Godavari River",
         500,
     );
 
