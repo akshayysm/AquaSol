@@ -12,8 +12,6 @@ import {
 } from "@solana/wallet-adapter-wallets";
 import { RPC_URL } from "@/lib/anchor";
 
-import "@solana/wallet-adapter-react-ui/styles.css";
-
 export default function WalletProvider({
   children,
 }: {

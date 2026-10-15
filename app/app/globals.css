@@ -6,6 +6,10 @@ html {
     zoom: 1.1;
 }
 
+::selection {
+    background: color-mix(in oklab, var(--aqua) 32%, transparent);
+}
+
 /* light mode */
 :root {
     --foreground: #5C6A72;
@@ -104,6 +108,72 @@ html {
     inset: 0;
     z-index: -10;
     pointer-events: none;
+}
+
+/* Wallet connect modal, themed to match the AquaSol palette. */
+.wallet-adapter-modal {
+    background: transparent;
+}
+
+.wallet-adapter-modal-overlay {
+    background: color-mix(in oklab, var(--gray-2) 55%, transparent);
+}
+
+.wallet-adapter-modal-wrapper {
+    background: var(--background-0);
+    border: 1px solid var(--background-4);
+    border-radius: 12px;
+    box-shadow: 0 16px 40px rgba(70, 74, 62, 0.18);
+    font-family: inherit;
+}
+
+.wallet-adapter-modal-title {
+    color: var(--foreground);
+}
+
+.wallet-adapter-modal-button-close {
+    background: var(--background-2);
+}
+
+.wallet-adapter-modal-button-close:hover {
+    background: var(--background-3);
+}
+
+.wallet-adapter-modal-button-close svg {
+    fill: var(--gray-1);
+}
+
+.wallet-adapter-modal-button-close:hover svg {
+    fill: var(--foreground);
+}
+
+.wallet-adapter-modal .wallet-adapter-button {
+    color: var(--foreground);
+    font-family: inherit;
+}
+
+.wallet-adapter-modal .wallet-adapter-button:not([disabled]):hover {
+    background-color: var(--background-1);
+}
+
+.wallet-adapter-modal .wallet-adapter-button:not([disabled]):focus-visible {
+    outline-color: var(--aqua);
+}
+
+.wallet-adapter-modal-list .wallet-adapter-button span {
+    color: var(--gray-1);
+}
+
+.wallet-adapter-modal-list-more {
+    color: var(--foreground);
+}
+
+.wallet-adapter-modal-list-more svg {
+    fill: currentColor;
+}
+
+.wallet-adapter-modal-collapse-button svg {
+    fill: var(--gray-1);
 }
 
 @media (prefers-reduced-motion: reduce) {
