@@ -1,9 +1,10 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useWalletModal } from "@solana/wallet-adapter-react-ui";
+import CopyButton from "@/components/CopyButton";
+import { shortKey } from "@/lib/format";
 
 export default function RoleShell({
   title,
@@ -16,36 +17,26 @@ export default function RoleShell({
   const { setVisible } = useWalletModal();
   const router = useRouter();
 
-  const short = publicKey
-    ? `${publicKey.toBase58().slice(0, 4)}..${publicKey
-        .toBase58()
-        .slice(-4)}`
-    : "";
-
   return (
-    <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col p-6">
-      <header className="mb-6 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Link href="/" className="text-sm text-gray-2 hover:underline">
-            AquaSol
-          </Link>
-          <span className="text-lg font-semibold">{title}</span>
-        </div>
+    <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-6 py-8">
+      <header className="mb-8 flex items-center justify-between gap-4">
+        <h1 className="text-lg font-semibold">{title}</h1>
         <div className="flex items-center gap-2">
           {connected && publicKey ? (
             <>
               <span
-                className="rounded bg-bg-3 px-2 py-1 font-mono text-xs"
+                className="inline-flex items-center gap-1 rounded-lg border border-bg-4 bg-bg-1 py-1 pl-2.5 pr-1 font-mono text-xs text-gray-1"
                 title={publicKey.toBase58()}
               >
-                {short}
+                {shortKey(publicKey)}
+                <CopyButton value={publicKey.toBase58()} />
               </span>
               <button
                 onClick={async () => {
                   await disconnect();
                   router.push("/");
                 }}
-                className="rounded-lg border border-bg-5 px-3 py-1.5 text-sm hover:bg-bg-2"
+                className="rounded-lg border border-bg-5 bg-bg-0 px-3 py-1.5 text-sm text-foreground transition-colors hover:bg-bg-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aqua/40"
               >
                 Disconnect
               </button>
@@ -53,7 +44,7 @@ export default function RoleShell({
           ) : (
             <button
               onClick={() => setVisible(true)}
-              className="rounded-lg bg-foreground px-3 py-1.5 text-sm font-medium text-bg-0 hover:opacity-90"
+              className="rounded-lg bg-foreground px-3 py-1.5 text-sm font-medium text-bg-0 transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aqua/40"
             >
               Connect Wallet
             </button>

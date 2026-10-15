@@ -6,7 +6,11 @@ import { PublicKey, SystemProgram } from "@solana/web3.js";
 import { useAnchorWallet, useConnection } from "@solana/wallet-adapter-react";
 import RoleShell from "@/components/RoleShell";
 import StatusBadge, { normalizeStatus } from "@/components/StatusBadge";
+import TxFeedback, { TxSigLine } from "@/components/TxFeedback";
+import CopyButton from "@/components/CopyButton";
+import Panel, { PanelHeader } from "@/components/Panel";
 import { getProgram } from "@/lib/anchor";
+import { parseMetadata, recordTxSig, resolveTxSigs, shortKey } from "@/lib/format";
 import {
   findAgentPda,
   findCollectorAta,
@@ -31,25 +35,6 @@ type ClaimAccount = {
 
 type ClaimRow = { publicKey: PublicKey; account: ClaimAccount };
 
-function parseMetadata(uri?: string): { name?: string; location?: string } {
-  if (!uri) return {};
-  try {
-    const parsed = JSON.parse(uri);
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      return {
-        name: typeof parsed.name === "string" ? parsed.name : undefined,
-        location:
-          typeof parsed.location === "string"
-            ? parsed.location
-            : undefined,
-      };
-    }
-  } catch {
-    return {};
-  }
-  return {};
-}
-
 export default function AgentPage() {
   const { connection } = useConnection();
   const wallet = useAnchorWallet();
@@ -67,10 +52,17 @@ export default function AgentPage() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [txSig, setTxSig] = useState("");
+  const [txSigs, setTxSigs] = useState<Record<string, string>>({});
+
+  const walletKey = wallet?.publicKey.toBase58() ?? "";
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setMessage("");
+    setTxSig("");
+  }, [walletKey]);
 
   const load = useCallback(async () => {
     if (!program || !wallet) return;
-    setMessage("");
     try {
       const [agentPda] = findAgentPda(wallet.publicKey);
 
@@ -83,44 +75,54 @@ export default function AgentPage() {
       }
       setAgent(agentAccount);
 
+      const sigItems: { pda: PublicKey; status: string }[] = [];
+      if (agentAccount) {
+        sigItems.push({
+          pda: agentPda,
+          status: normalizeStatus(agentAccount.status),
+        });
+      }
+
       // Claims are only actionable for a verified agent.
       if (
         agentAccount &&
         normalizeStatus(agentAccount.status) === "verified"
       ) {
         const all = (await program.account.claim.all()) as unknown as ClaimRow[];
-        setPending(
-          all
-            .filter(
-              (c) => normalizeStatus(c.account.status) === "pending"
-            )
-            .sort(
-              (a, b) =>
-                a.account.claimId.toNumber() -
-                b.account.claimId.toNumber()
-            )
-        );
-        setCompleted(
-          all
-            .filter(
-              (c) => normalizeStatus(c.account.status) !== "pending"
-            )
-            .sort(
-              (a, b) =>
-                b.account.claimId.toNumber() -
-                a.account.claimId.toNumber()
-            )
-        );
+        const pendingRows = all
+          .filter((c) => normalizeStatus(c.account.status) === "pending")
+          .sort(
+            (a, b) =>
+              a.account.claimId.toNumber() -
+              b.account.claimId.toNumber()
+          );
+        const completedRows = all
+          .filter((c) => normalizeStatus(c.account.status) !== "pending")
+          .sort(
+            (a, b) =>
+              b.account.claimId.toNumber() -
+              a.account.claimId.toNumber()
+          );
+        setPending(pendingRows);
+        setCompleted(completedRows);
+        for (const row of [...pendingRows, ...completedRows]) {
+          sigItems.push({
+            pda: row.publicKey,
+            status: normalizeStatus(row.account.status),
+          });
+        }
       } else {
         setPending([]);
         setCompleted([]);
       }
+
+      setTxSigs(await resolveTxSigs(connection, sigItems));
     } catch (e) {
       setMessage(`Failed to load on-chain state: ${String(e)}`);
     } finally {
       setLoaded(true);
     }
-  }, [program, wallet]);
+  }, [connection, program, wallet]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -144,7 +146,7 @@ export default function AgentPage() {
       return;
     }
     setBusy(true);
-    setMessage("Sending register_agent…");
+    setMessage("Registering agent…");
     setTxSig("");
     try {
       const [config] = findConfigPda();
@@ -159,7 +161,10 @@ export default function AgentPage() {
         })
         .rpc();
       setTxSig(sig);
-      setMessage("Registered. Waiting for admin approval.");
+      setMessage(
+        "Registered. Waiting for the admin to approve this agent."
+      );
+      recordTxSig(agentPda.toBase58(), sig, "pending");
       setName("");
       setLocation("");
       await load();
@@ -173,9 +178,7 @@ export default function AgentPage() {
   async function decide(row: ClaimRow, approved: boolean) {
     if (!program || !wallet) return;
     setBusy(true);
-    setMessage(
-      approved ? "Sending verify_claim (approve)…" : "Sending verify_claim (reject)…"
-    );
+    setMessage(approved ? "Verifying claim…" : "Rejecting claim…");
     setTxSig("");
     try {
       const [config] = findConfigPda();
@@ -201,6 +204,11 @@ export default function AgentPage() {
           ? "Claim verified — AQUA minted to collector."
           : "Claim rejected."
       );
+      recordTxSig(
+        row.publicKey.toBase58(),
+        sig,
+        approved ? "verified" : "rejected"
+      );
       await load();
     } catch (e) {
       setMessage(`verify_claim failed: ${String(e)}`);
@@ -212,78 +220,96 @@ export default function AgentPage() {
   if (!wallet) {
     return (
       <RoleShell title="Agent">
-        <p className="rounded-xl border border-bg-4 bg-bg-0 p-4 text-sm text-gray-2">
-          Connect a wallet to continue.
-        </p>
+        <Panel className="text-sm text-gray-1">
+          Connect a wallet to register as a verification agent.
+        </Panel>
       </RoleShell>
     );
   }
 
   const status = agent ? normalizeStatus(agent.status) : "unregistered";
   const meta = agent ? parseMetadata(agent.metadataUri) : {};
+  const agentPda = findAgentPda(wallet.publicKey)[0];
 
   return (
     <RoleShell title="Agent">
       <div className="flex flex-col gap-4">
-        <section className="rounded-xl border border-bg-4 bg-bg-0 p-4 text-sm shadow-sm">
-          <div className="flex items-center justify-between">
-            <span className="font-medium">Status</span>
+        <TxFeedback
+          message={message}
+          txSig={txSig}
+          onDismiss={() => {
+            setMessage("");
+            setTxSig("");
+          }}
+        />
+
+        <Panel>
+          <div className="flex items-start justify-between gap-4">
+            <span className="font-medium text-foreground">
+              {meta.name ?? "Agent status"}
+            </span>
             <StatusBadge status={status} />
           </div>
           {agent && (
-            <dl className="mt-3 space-y-1 text-gray-2">
-              <div className="flex gap-2">
-                <dt className="w-24 shrink-0 text-gray-2">Agent PDA</dt>
-                <dd className="break-all font-mono text-xs">
-                  {findAgentPda(wallet.publicKey)[0].toBase58()}
-                </dd>
-              </div>
-              {meta.name && (
+            <>
+              <dl className="mt-3 space-y-1.5 text-sm">
                 <div className="flex gap-2">
-                  <dt className="w-24 shrink-0 text-gray-2">Name</dt>
-                  <dd>{meta.name}</dd>
+                  <dt className="w-24 shrink-0 text-xs text-gray-1">Agent PDA</dt>
+                  <dd
+                    className="break-all font-mono text-xs text-gray-2"
+                    title={agentPda.toBase58()}
+                  >
+                    <span className="inline-flex items-center gap-1">
+                      {shortKey(agentPda)}
+                      <CopyButton value={agentPda.toBase58()} />
+                    </span>
+                  </dd>
                 </div>
-              )}
-              {meta.location && (
-                <div className="flex gap-2">
-                  <dt className="w-24 shrink-0 text-gray-2">Location</dt>
-                  <dd>{meta.location}</dd>
-                </div>
-              )}
-              {!meta.name && !meta.location && agent.metadataUri && (
-                <div className="flex gap-2">
-                  <dt className="w-24 shrink-0 text-gray-2">Metadata</dt>
-                  <dd className="break-all">{agent.metadataUri}</dd>
-                </div>
-              )}
-            </dl>
+                {meta.location && (
+                  <div className="flex gap-2">
+                    <dt className="w-24 shrink-0 text-xs text-gray-1">Location</dt>
+                    <dd className="text-foreground">{meta.location}</dd>
+                  </div>
+                )}
+                {!meta.name && !meta.location && agent.metadataUri && (
+                  <div className="flex gap-2">
+                    <dt className="w-24 shrink-0 text-xs text-gray-1">Metadata</dt>
+                    <dd className="break-all">{agent.metadataUri}</dd>
+                  </div>
+                )}
+              </dl>
+              <TxSigLine sig={txSigs[agentPda.toBase58()]} />
+            </>
           )}
-          {!loaded && (
-            <p className="mt-2 text-gray-2">Loading…</p>
-          )}
-        </section>
+          {!loaded && <p className="mt-2 text-sm text-gray-1">Loading…</p>}
+        </Panel>
 
         {!agent && loaded && (
-          <section className="rounded-xl border border-bg-4 bg-bg-0 p-4 shadow-sm">
-            <h2 className="mb-3 font-medium">Register as agent</h2>
-            <div className="flex flex-col gap-3">
+          <Panel>
+            <PanelHeader title="Register as agent" />
+            <div className="flex flex-col gap-4">
               <div>
-                <label className="mb-1 block text-sm text-gray-2">
+                <label htmlFor="agent-name" className="mb-1 block text-xs text-gray-1">
                   Name
                 </label>
                 <input
-                  className="w-full rounded-lg border border-bg-5 bg-bg-0 px-3 py-2 text-sm text-foreground placeholder:text-gray-2"
+                  id="agent-name"
+                  className="input"
                   placeholder="e.g. Ravi Kumar"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                 />
               </div>
               <div>
-                <label className="mb-1 block text-sm text-gray-2">
+                <label
+                  htmlFor="agent-location"
+                  className="mb-1 block text-xs text-gray-1"
+                >
                   Location
                 </label>
                 <input
-                  className="w-full rounded-lg border border-bg-5 bg-bg-0 px-3 py-2 text-sm text-foreground placeholder:text-gray-2"
+                  id="agent-location"
+                  className="input"
                   placeholder="e.g. Nashik, Maharashtra"
                   value={location}
                   onChange={(e) => setLocation(e.target.value)}
@@ -292,34 +318,35 @@ export default function AgentPage() {
               <button
                 onClick={register}
                 disabled={busy}
-                className="self-start rounded-lg bg-foreground px-4 py-2 text-sm font-medium text-bg-0 hover:opacity-90 disabled:opacity-50"
+                className="w-full rounded-lg bg-foreground px-4 py-2.5 text-sm font-medium text-bg-0 transition-opacity hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aqua/40 sm:w-auto sm:self-start"
               >
-                register_agent
+                {busy ? "Registering…" : "Register"}
               </button>
             </div>
-          </section>
+          </Panel>
         )}
 
         {agent && status === "pending" && (
-          <p className="rounded-xl border border-yellow bg-bg-yellow p-4 text-sm text-foreground">
+          <div className="rounded-xl border border-yellow/40 bg-bg-yellow px-4 py-3 text-sm text-foreground">
             Registered. Waiting for the admin to approve this agent.
-          </p>
+          </div>
         )}
 
         {agent && status === "rejected" && (
-          <p className="rounded-xl border border-red bg-bg-red p-4 text-sm text-foreground">
+          <div className="rounded-xl border border-red/40 bg-bg-red px-4 py-3 text-sm text-foreground">
             This agent was rejected by the admin.
-          </p>
+          </div>
         )}
 
         {agent && status === "verified" && (
           <>
             <ClaimSection
               title="Pending claims"
-              empty="No pending claims."
+              empty="No pending claims to verify right now."
               rows={pending}
               busy={busy}
               selfWallet={wallet.publicKey}
+              txSigs={txSigs}
               onVerify={(row) => decide(row, true)}
               onReject={(row) => decide(row, false)}
             />
@@ -329,15 +356,9 @@ export default function AgentPage() {
               rows={completed}
               busy={busy}
               selfWallet={wallet.publicKey}
+              txSigs={txSigs}
             />
           </>
-        )}
-
-        {message && <p className="text-sm text-foreground">{message}</p>}
-        {txSig && (
-          <p className="break-all font-mono text-xs text-gray-2">
-            tx: {txSig}
-          </p>
         )}
       </div>
     </RoleShell>
@@ -350,6 +371,7 @@ function ClaimSection({
   rows,
   busy,
   selfWallet,
+  txSigs,
   onVerify,
   onReject,
 }: {
@@ -358,65 +380,86 @@ function ClaimSection({
   rows: ClaimRow[];
   busy: boolean;
   selfWallet: PublicKey;
+  txSigs: Record<string, string>;
   onVerify?: (row: ClaimRow) => void;
   onReject?: (row: ClaimRow) => void;
 }) {
+  const actionable = Boolean(onVerify && onReject);
   return (
-    <section className="rounded-xl border border-bg-4 bg-bg-0 p-4 shadow-sm">
-      <h2 className="mb-3 font-medium">{title}</h2>
-      {rows.length === 0 && (
-        <p className="text-sm text-gray-2">{empty}</p>
+    <Panel>
+      <PanelHeader
+        title={title}
+        hint={
+          actionable
+            ? "Verify to mint AQUA to the collector, or reject to close the claim."
+            : undefined
+        }
+      />
+      {rows.length === 0 ? (
+        <p className="text-sm text-gray-1">{empty}</p>
+      ) : (
+        <ul className="space-y-2">
+          {rows.map((row) => {
+            const self = row.account.collector.equals(selfWallet);
+            return (
+              <li
+                key={row.publicKey.toBase58()}
+                className="rounded-lg border border-bg-4 bg-bg-0 px-4 py-3 transition-colors hover:border-bg-5"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-medium text-foreground">
+                      {row.account.sourceName}
+                    </div>
+                    <div className="mt-1 flex flex-wrap items-center gap-x-1.5 text-xs text-gray-1">
+                      <span className="numeric">
+                        {row.account.amount.toString()} liters · claim #
+                        {row.account.claimId.toString()}
+                      </span>
+                      <CopyButton value={row.account.claimId.toString()} />
+                    </div>
+                    <div className="mt-1 flex items-center gap-1.5 font-mono text-xs text-gray-2">
+                      <span
+                        className="truncate"
+                        title={row.account.collector.toBase58()}
+                      >
+                        collector {shortKey(row.account.collector)}
+                        {self ? " (you)" : ""}
+                      </span>
+                      <CopyButton value={row.account.collector.toBase58()} />
+                    </div>
+                    <TxSigLine sig={txSigs[row.publicKey.toBase58()]} />
+                  </div>
+                  <StatusBadge status={row.account.status} />
+                </div>
+                {onVerify && onReject && (
+                  <div className="mt-3 flex items-center gap-2">
+                    <button
+                      onClick={() => onVerify(row)}
+                      disabled={busy || self}
+                      className="rounded-lg bg-green px-3 py-1.5 text-xs font-medium text-bg-0 transition-opacity hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aqua/40"
+                    >
+                      Verify & mint AQUA
+                    </button>
+                    <button
+                      onClick={() => onReject(row)}
+                      disabled={busy || self}
+                      className="rounded-lg border border-red/50 bg-bg-0 px-3 py-1.5 text-xs font-medium text-red transition-colors hover:bg-bg-red disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aqua/40"
+                    >
+                      Reject
+                    </button>
+                    {self && (
+                      <span className="text-xs text-gray-2">
+                        own claim — cannot self-verify
+                      </span>
+                    )}
+                  </div>
+                )}
+              </li>
+            );
+          })}
+        </ul>
       )}
-      <ul className="space-y-2">
-        {rows.map((row) => {
-          const self = row.account.collector.equals(selfWallet);
-          return (
-            <li
-              key={row.publicKey.toBase58()}
-              className="rounded-lg border border-bg-4 p-3 text-sm"
-            >
-              <div className="flex items-center justify-between gap-2">
-                <div className="min-w-0">
-                  <div className="truncate font-mono text-xs">
-                    collector: {row.account.collector.toBase58()}
-                  </div>
-                  <div className="truncate font-mono text-xs">
-                    source: {row.account.sourceName}
-                  </div>
-                  <div className="mt-1 text-gray-2">
-                    {row.account.amount.toString()} liters · claim_id{" "}
-                    {row.account.claimId.toString()}
-                  </div>
-                </div>
-                <StatusBadge status={row.account.status} />
-              </div>
-              {onVerify && onReject && (
-                <div className="mt-2 flex items-center gap-2">
-                  <button
-                    onClick={() => onVerify(row)}
-                    disabled={busy || self}
-                    className="rounded-lg bg-green px-3 py-1.5 text-xs font-medium text-bg-0 hover:opacity-90 disabled:opacity-50"
-                  >
-                    Verify (mint)
-                  </button>
-                  <button
-                    onClick={() => onReject(row)}
-                    disabled={busy || self}
-                    className="rounded-lg bg-red px-3 py-1.5 text-xs font-medium text-bg-0 hover:opacity-90 disabled:opacity-50"
-                  >
-                    Reject
-                  </button>
-                  {self && (
-                    <span className="text-xs text-gray-2">
-                      own claim — cannot self-verify
-                    </span>
-                  )}
-                </div>
-              )}
-            </li>
-          );
-        })}
-      </ul>
-    </section>
+    </Panel>
   );
 }

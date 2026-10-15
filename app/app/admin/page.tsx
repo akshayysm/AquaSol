@@ -5,7 +5,11 @@ import { PublicKey } from "@solana/web3.js";
 import { useAnchorWallet, useConnection } from "@solana/wallet-adapter-react";
 import RoleShell from "@/components/RoleShell";
 import StatusBadge, { normalizeStatus } from "@/components/StatusBadge";
+import TxFeedback from "@/components/TxFeedback";
+import CopyButton from "@/components/CopyButton";
+import Panel, { PanelHeader } from "@/components/Panel";
 import { getProgram } from "@/lib/anchor";
+import { parseMetadata, shortKey } from "@/lib/format";
 import { findAgentPda, findConfigPda } from "@/lib/pda";
 
 type AgentAccount = {
@@ -32,9 +36,15 @@ export default function AdminPage() {
   const [message, setMessage] = useState("");
   const [txSig, setTxSig] = useState("");
 
+  const walletKey = wallet?.publicKey.toBase58() ?? "";
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setMessage("");
+    setTxSig("");
+  }, [walletKey]);
+
   const load = useCallback(async () => {
     if (!program) return;
-    setMessage("");
     try {
       const [configPda] = findConfigPda();
       try {
@@ -72,9 +82,7 @@ export default function AdminPage() {
   async function decide(agentWallet: PublicKey, approved: boolean) {
     if (!program || !wallet) return;
     setBusy(true);
-    setMessage(
-      approved ? "Sending verify_agent (approve)…" : "Sending verify_agent (reject)…"
-    );
+    setMessage(approved ? "Approving agent…" : "Rejecting agent…");
     setTxSig("");
     try {
       const [config] = findConfigPda();
@@ -100,9 +108,9 @@ export default function AdminPage() {
   if (!wallet) {
     return (
       <RoleShell title="Admin">
-        <p className="rounded-xl border border-bg-4 bg-bg-0 p-4 text-sm text-gray-2">
-          Connect a wallet to continue.
-        </p>
+        <Panel className="text-sm text-gray-1">
+          Connect the admin wallet to manage agents.
+        </Panel>
       </RoleShell>
     );
   }
@@ -110,7 +118,7 @@ export default function AdminPage() {
   if (!loaded) {
     return (
       <RoleShell title="Admin">
-        <p className="text-sm text-gray-2">Loading…</p>
+        <p className="text-sm text-gray-1">Loading…</p>
       </RoleShell>
     );
   }
@@ -118,9 +126,9 @@ export default function AdminPage() {
   if (!initialized) {
     return (
       <RoleShell title="Admin">
-        <p className="rounded-xl border border-yellow bg-bg-yellow p-4 text-sm text-foreground">
+        <div className="rounded-xl border border-yellow/40 bg-bg-yellow p-4 text-sm text-foreground">
           Protocol is not initialized on this network yet.
-        </p>
+        </div>
       </RoleShell>
     );
   }
@@ -130,16 +138,14 @@ export default function AdminPage() {
   if (!isAdmin) {
     return (
       <RoleShell title="Admin">
-        <div className="rounded-xl border border-red bg-bg-red p-4 text-sm text-foreground">
-          <p className="font-medium">Access denied.</p>
+        <div className="rounded-xl border border-red/40 bg-bg-red p-4 text-sm text-foreground">
+          <p className="font-medium">Access denied</p>
           <p className="mt-1">
             The connected wallet is not the protocol admin.
           </p>
-          <div className="mt-3 space-y-1 font-mono text-xs">
-            <div className="break-all">admin: {configAdmin}</div>
-            <div className="break-all">
-              you: {wallet.publicKey.toBase58()}
-            </div>
+          <div className="mt-3 space-y-1 font-mono text-xs break-all">
+            <div>admin {configAdmin}</div>
+            <div>you {wallet.publicKey.toBase58()}</div>
           </div>
         </div>
       </RoleShell>
@@ -156,87 +162,114 @@ export default function AdminPage() {
   return (
     <RoleShell title="Admin">
       <div className="flex flex-col gap-4">
-        <section className="rounded-xl border border-bg-4 bg-bg-0 p-4 shadow-sm">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="font-medium">Agents pending approval</h2>
-            <button
-              onClick={load}
-              className="text-sm text-gray-2 hover:underline"
-            >
-              refresh
-            </button>
-          </div>
-          {pending.length === 0 && (
-            <p className="text-sm text-gray-2">
+        <TxFeedback
+          message={message}
+          txSig={txSig}
+          onDismiss={() => {
+            setMessage("");
+            setTxSig("");
+          }}
+        />
+
+        <Panel>
+          <PanelHeader
+            title="Agents pending approval"
+            hint="Registered agents can only verify claims once approved."
+            action={
+              <button
+                onClick={load}
+                className="shrink-0 rounded-lg border border-bg-5 bg-bg-0 px-2.5 py-1.5 text-xs text-gray-1 transition-colors hover:bg-bg-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aqua/40"
+              >
+                Refresh
+              </button>
+            }
+          />
+          {pending.length === 0 ? (
+            <p className="text-sm text-gray-1">
               No agents waiting for approval.
             </p>
-          )}
-          <ul className="space-y-2">
-            {pending.map((row) => (
-              <li
-                key={row.publicKey.toBase58()}
-                className="flex items-center justify-between gap-2 rounded-lg border border-bg-4 p-3 text-sm"
-              >
-                <div className="min-w-0">
-                  <div className="truncate font-mono text-xs">
-                    {row.account.agent.toBase58()}
-                  </div>
-                  <div className="truncate text-gray-2">
-                    {row.account.metadataUri}
-                  </div>
-                </div>
-                <div className="flex shrink-0 gap-2">
-                  <button
-                    onClick={() => decide(row.account.agent, true)}
-                    disabled={busy}
-                    className="rounded-lg bg-green px-3 py-1.5 text-xs font-medium text-bg-0 hover:opacity-90 disabled:opacity-50"
+          ) : (
+            <ul className="space-y-2">
+              {pending.map((row) => {
+                const meta = parseMetadata(row.account.metadataUri);
+                return (
+                  <li
+                    key={row.publicKey.toBase58()}
+                    className="flex items-center justify-between gap-4 rounded-lg border border-bg-4 bg-bg-0 px-4 py-3 transition-colors hover:border-bg-5"
                   >
-                    Approve
-                  </button>
-                  <button
-                    onClick={() => decide(row.account.agent, false)}
-                    disabled={busy}
-                    className="rounded-lg bg-red px-3 py-1.5 text-xs font-medium text-bg-0 hover:opacity-90 disabled:opacity-50"
-                  >
-                    Reject
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </section>
-
-        <section className="rounded-xl border border-bg-4 bg-bg-0 p-4 shadow-sm">
-          <h2 className="mb-3 font-medium">Resolved agents</h2>
-          {resolved.length === 0 && (
-            <p className="text-sm text-gray-2">No resolved agents yet.</p>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1">
+                        <span className="truncate text-sm font-medium text-foreground">
+                          {meta.name ?? shortKey(row.account.agent)}
+                        </span>
+                        <CopyButton value={row.account.agent.toBase58()} />
+                      </div>
+                      <div
+                        className="mt-1 truncate font-mono text-xs text-gray-1"
+                        title={row.account.agent.toBase58()}
+                      >
+                        {meta.location ??
+                          row.account.metadataUri ??
+                          shortKey(row.account.agent)}
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 gap-2">
+                      <button
+                        onClick={() => decide(row.account.agent, true)}
+                        disabled={busy}
+                        className="rounded-lg bg-green px-3 py-1.5 text-xs font-medium text-bg-0 transition-opacity hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aqua/40"
+                      >
+                        Approve
+                      </button>
+                      <button
+                        onClick={() => decide(row.account.agent, false)}
+                        disabled={busy}
+                        className="rounded-lg border border-red/50 bg-bg-0 px-3 py-1.5 text-xs font-medium text-red transition-colors hover:bg-bg-red disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aqua/40"
+                      >
+                        Reject
+                      </button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
           )}
-          <ul className="space-y-2">
-            {resolved.map((row) => (
-              <li
-                key={row.publicKey.toBase58()}
-                className="flex items-center justify-between gap-2 rounded-lg border border-bg-4 p-3 text-sm"
-              >
-                <div className="min-w-0">
-                  <div className="truncate font-mono text-xs">
-                    {row.account.agent.toBase58()}
-                  </div>
-                  <div className="truncate text-gray-2">
-                    {row.account.metadataUri}
-                  </div>
-                </div>
-                <StatusBadge status={row.account.status} />
-              </li>
-            ))}
-          </ul>
-        </section>
+        </Panel>
 
-        {message && <p className="text-sm text-foreground">{message}</p>}
-        {txSig && (
-          <p className="break-all font-mono text-xs text-gray-2">
-            tx: {txSig}
-          </p>
-        )}
+        <Panel>
+          <PanelHeader title="Resolved agents" />
+          {resolved.length === 0 ? (
+            <p className="text-sm text-gray-1">No resolved agents yet.</p>
+          ) : (
+            <ul className="space-y-2">
+              {resolved.map((row) => {
+                const meta = parseMetadata(row.account.metadataUri);
+                return (
+                  <li
+                    key={row.publicKey.toBase58()}
+                    className="flex items-center justify-between gap-4 rounded-lg border border-bg-4 bg-bg-0 px-4 py-3 transition-colors hover:border-bg-5"
+                  >
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1">
+                        <span className="truncate text-sm font-medium text-foreground">
+                          {meta.name ?? shortKey(row.account.agent)}
+                        </span>
+                        <CopyButton value={row.account.agent.toBase58()} />
+                      </div>
+                      <div
+                        className="mt-1 truncate font-mono text-xs text-gray-1"
+                        title={row.account.agent.toBase58()}
+                      >
+                        {meta.location ?? shortKey(row.account.agent)}
+                      </div>
+                    </div>
+                    <StatusBadge status={row.account.status} />
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </Panel>
       </div>
     </RoleShell>
   );
