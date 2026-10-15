@@ -1,12 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import BN from "bn.js";
 import { LAMPORTS_PER_SOL, PublicKey, SystemProgram } from "@solana/web3.js";
 import { useAnchorWallet, useConnection } from "@solana/wallet-adapter-react";
 import RoleShell from "@/components/RoleShell";
-import StatusBadge from "@/components/StatusBadge";
+import StatusBadge, { normalizeStatus } from "@/components/StatusBadge";
+import TxFeedback, { TxSigLine } from "@/components/TxFeedback";
+import CopyButton from "@/components/CopyButton";
+import Panel, { PanelHeader } from "@/components/Panel";
 import { getProgram } from "@/lib/anchor";
+import { recordTxSig, resolveTxSigs } from "@/lib/format";
 import {
   findClaimPda,
   findCollectorAta,
@@ -25,6 +29,28 @@ type ClaimAccount = {
 
 type ClaimRow = { publicKey: PublicKey; account: ClaimAccount };
 
+function BalanceCard({
+  label,
+  value,
+  unit,
+  accent,
+}: {
+  label: string;
+  value: string | null;
+  unit: string;
+  accent?: boolean;
+}) {
+  return (
+    <Panel className="p-4">
+      <div className="text-xs text-gray-1">{label}</div>
+      <div className={`numeric mt-1 text-2xl font-semibold ${accent ? "text-aqua" : ""}`}>
+        {value ?? "–"}
+        <span className="ml-1.5 text-sm font-normal text-gray-1">{unit}</span>
+      </div>
+    </Panel>
+  );
+}
+
 export default function CollectorPage() {
   const { connection } = useConnection();
   const wallet = useAnchorWallet();
@@ -42,6 +68,16 @@ export default function CollectorPage() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [txSig, setTxSig] = useState("");
+  const [txSigs, setTxSigs] = useState<Record<string, string>>({});
+  const pendingClaimIdRef = useRef<string | null>(null);
+
+  const walletKey = wallet?.publicKey.toBase58() ?? "";
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setMessage("");
+    setTxSig("");
+    pendingClaimIdRef.current = null;
+  }, [walletKey]);
 
   const loadBalances = useCallback(async () => {
     if (!wallet) return;
@@ -63,18 +99,39 @@ export default function CollectorPage() {
     if (!program || !wallet) return;
     try {
       const all = (await program.account.claim.all()) as unknown as ClaimRow[];
-      setClaims(
-        all
-          .filter((c) => c.account.collector.equals(wallet.publicKey))
-          .sort(
-            (a, b) =>
-              b.account.claimId.toNumber() - a.account.claimId.toNumber()
-          )
+      const mine = all
+        .filter((c) => c.account.collector.equals(wallet.publicKey))
+        .sort(
+          (a, b) =>
+            b.account.claimId.toNumber() - a.account.claimId.toNumber()
+        );
+      setClaims(mine);
+
+      const pendingId = pendingClaimIdRef.current;
+      if (pendingId) {
+        const tracked = mine.find(
+          (c) => c.account.claimId.toString() === pendingId
+        );
+        if (tracked && normalizeStatus(tracked.account.status) !== "pending") {
+          pendingClaimIdRef.current = null;
+          setMessage("");
+          setTxSig("");
+        }
+      }
+
+      setTxSigs(
+        await resolveTxSigs(
+          connection,
+          mine.map((c) => ({
+            pda: c.publicKey,
+            status: normalizeStatus(c.account.status),
+          }))
+        )
       );
     } catch (e) {
       setMessage(`Failed to load claims: ${String(e)}`);
     }
-  }, [program, wallet]);
+  }, [connection, program, wallet]);
 
   // claim_id is time-based; set it in an effect so prerender stays stable.
   useEffect(() => {
@@ -102,7 +159,7 @@ export default function CollectorPage() {
     }
 
     setBusy(true);
-    setMessage("Sending submit_claim…");
+    setMessage("Submitting claim…");
     setTxSig("");
     try {
       const [config] = findConfigPda();
@@ -118,7 +175,9 @@ export default function CollectorPage() {
         })
         .rpc();
       setTxSig(sig);
-      setMessage(`Claim #${id.toString()} submitted (Pending).`);
+      setMessage(`Claim #${id.toString()} submitted and awaiting verification.`);
+      pendingClaimIdRef.current = id.toString();
+      recordTxSig(claimPda.toBase58(), sig, "pending");
       setSource("");
       setAmount("");
       setClaimId(newClaimId().toString());
@@ -133,9 +192,9 @@ export default function CollectorPage() {
   if (!wallet) {
     return (
       <RoleShell title="Collector">
-        <p className="rounded-xl border border-bg-4 bg-bg-0 p-4 text-sm text-gray-2">
-          Connect a wallet to continue.
-        </p>
+        <Panel className="text-sm text-gray-1">
+          Connect a wallet to log water claims and collect AQUA.
+        </Panel>
       </RoleShell>
     );
   }
@@ -143,116 +202,129 @@ export default function CollectorPage() {
   return (
     <RoleShell title="Collector">
       <div className="flex flex-col gap-4">
-        <section className="grid grid-cols-2 gap-4">
-          <div className="rounded-xl border border-bg-4 bg-bg-0 p-4 shadow-sm">
-            <div className="text-sm text-gray-2">SOL balance</div>
-            <div className="mt-1 text-lg font-semibold">
-              {solBalance ?? "…"}
-            </div>
-          </div>
-          <div className="rounded-xl border border-bg-4 bg-bg-0 p-4 shadow-sm">
-            <div className="text-sm text-gray-2">AQUA balance</div>
-            <div className="mt-1 text-lg font-semibold">
-              {aquaBalance ?? "…"}
-            </div>
-          </div>
+        <TxFeedback
+          message={message}
+          txSig={txSig}
+          onDismiss={() => {
+            setMessage("");
+            setTxSig("");
+            pendingClaimIdRef.current = null;
+          }}
+        />
+
+        <section className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <BalanceCard label="SOL balance" value={solBalance} unit="SOL" />
+          <BalanceCard label="AQUA balance" value={aquaBalance} unit="AQUA" accent />
         </section>
 
-        <section className="rounded-xl border border-bg-4 bg-bg-0 p-4 shadow-sm">
-          <h2 className="mb-3 font-medium">Create claim</h2>
-          <div className="flex flex-col gap-3">
+        <Panel>
+          <PanelHeader
+            title="Log a claim"
+            hint="Water you collected from a natural source. An agent verifies it before AQUA is minted."
+          />
+          <div className="flex flex-col gap-4">
             <div>
-              <label className="mb-1 block text-sm text-gray-2">
-                source name
+              <label htmlFor="source" className="mb-1 block text-xs text-gray-1">
+                Source name
               </label>
               <input
-                className="w-full rounded-lg border border-bg-5 bg-bg-0 px-3 py-2 text-sm text-foreground placeholder:text-gray-2"
+                id="source"
+                className="input"
                 placeholder="e.g. Godavari River"
                 value={source}
                 onChange={(e) => setSource(e.target.value)}
               />
             </div>
             <div>
-              <label className="mb-1 block text-sm text-gray-2">
-                amount (liters)
+              <label htmlFor="amount" className="mb-1 block text-xs text-gray-1">
+                Amount (liters)
               </label>
               <input
-                className="w-full rounded-lg border border-bg-5 bg-bg-0 px-3 py-2 text-sm text-foreground placeholder:text-gray-2"
+                id="amount"
+                className="input numeric"
                 placeholder="e.g. 750"
+                inputMode="numeric"
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
               />
             </div>
             <div>
-              <label className="mb-1 block text-sm text-gray-2">
-                claim_id (auto)
+              <label
+                htmlFor="claim-id"
+                className="mb-1 block text-xs text-gray-1"
+              >
+                Claim ID (auto)
               </label>
               <div className="flex gap-2">
                 <input
-                  className="w-full rounded-lg border border-bg-5 bg-bg-0 px-3 py-2 font-mono text-sm text-foreground"
+                  id="claim-id"
+                  className="input font-mono text-xs"
                   value={claimId}
                   onChange={(e) => setClaimId(e.target.value)}
                 />
                 <button
                   onClick={() => setClaimId(newClaimId().toString())}
-                  className="shrink-0 rounded-lg border border-bg-5 px-3 text-sm hover:bg-bg-2"
+                  className="shrink-0 rounded-lg border border-bg-5 bg-bg-0 px-3 text-sm text-foreground transition-colors hover:bg-bg-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aqua/40"
                 >
-                  regenerate
+                  Regenerate ID
                 </button>
               </div>
             </div>
             <button
               onClick={submit}
               disabled={busy}
-              className="self-start rounded-lg bg-foreground px-4 py-2 text-sm font-medium text-bg-0 hover:opacity-90 disabled:opacity-50"
+              className="w-full rounded-lg bg-foreground px-4 py-2.5 text-sm font-medium text-bg-0 transition-opacity hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aqua/40 sm:w-auto sm:self-start"
             >
-              submit_claim
+              {busy ? "Submitting…" : "Submit claim"}
             </button>
           </div>
-        </section>
+        </Panel>
 
-        <section className="rounded-xl border border-bg-4 bg-bg-0 p-4 shadow-sm">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="font-medium">My claims</h2>
-            <button
-              onClick={loadClaims}
-              className="text-sm text-gray-2 hover:underline"
-            >
-              refresh
-            </button>
-          </div>
-          {claims.length === 0 && (
-            <p className="text-sm text-gray-2">No claims submitted yet.</p>
-          )}
-          <ul className="space-y-2">
-            {claims.map((row) => (
-              <li
-                key={row.publicKey.toBase58()}
-                className="rounded-lg border border-bg-4 p-3 text-sm"
+        <Panel>
+          <PanelHeader
+            title="My claims"
+            hint="Newest first. Verified claims mint AQUA; rejected ones are closed."
+            action={
+              <button
+                onClick={loadClaims}
+                className="shrink-0 rounded-lg border border-bg-5 bg-bg-0 px-2.5 py-1.5 text-xs text-gray-1 transition-colors hover:bg-bg-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-aqua/40"
               >
-                <div className="flex items-center justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="truncate text-xs">
-                      source: {row.account.sourceName}
+                Refresh
+              </button>
+            }
+          />
+          {claims.length === 0 ? (
+            <p className="text-sm text-gray-1">
+              No claims yet. Log your first one above.
+            </p>
+          ) : (
+            <ul className="space-y-2">
+              {claims.map((row) => (
+                <li
+                  key={row.publicKey.toBase58()}
+                  className="rounded-lg border border-bg-4 bg-bg-0 px-4 py-3 transition-colors hover:border-bg-5"
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium text-foreground">
+                        {row.account.sourceName}
+                      </div>
+                      <div className="mt-1 flex flex-wrap items-center gap-x-1.5 text-xs text-gray-1">
+                        <span className="numeric">
+                          {row.account.amount.toString()} liters · claim #
+                          {row.account.claimId.toString()}
+                        </span>
+                        <CopyButton value={row.account.claimId.toString()} />
+                      </div>
+                      <TxSigLine sig={txSigs[row.publicKey.toBase58()]} />
                     </div>
-                    <div className="mt-1 text-gray-2">
-                      {row.account.amount.toString()} liters · claim_id{" "}
-                      {row.account.claimId.toString()}
-                    </div>
+                    <StatusBadge status={row.account.status} />
                   </div>
-                  <StatusBadge status={row.account.status} />
-                </div>
-              </li>
-            ))}
-          </ul>
-        </section>
-
-        {message && <p className="text-sm text-foreground">{message}</p>}
-        {txSig && (
-          <p className="break-all font-mono text-xs text-gray-2">
-            tx: {txSig}
-          </p>
-        )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </Panel>
       </div>
     </RoleShell>
   );

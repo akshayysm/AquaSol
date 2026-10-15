@@ -14,17 +14,16 @@ export function normalizeStatus(status: unknown): string {
 
 export default function StatusBadge({ status }: { status: unknown }) {
   const s = normalizeStatus(status);
-  const color =
+  const dotColor =
     s === "verified"
-      ? "border-green bg-bg-green text-foreground"
+      ? "bg-green"
       : s === "rejected"
-        ? "border-red bg-bg-red text-foreground"
-        : "border-yellow bg-bg-yellow text-foreground";
+        ? "bg-red"
+        : "bg-yellow";
 
   return (
-    <span
-      className={`inline-block rounded-full border px-2 py-0.5 text-xs font-medium ${color}`}
-    >
+    <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-bg-4 bg-bg-2 px-2.5 py-1 text-xs font-medium text-foreground">
+      <span className={`h-1.5 w-1.5 rounded-full ${dotColor}`} aria-hidden />
       {s}
     </span>
   );
